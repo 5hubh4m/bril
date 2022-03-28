@@ -798,6 +798,15 @@ function parseBool(s: string): boolean {
   }
 }
 
+function parseNumber(s: string): number {
+  let f = parseFloat(s);
+  if (!isNaN(f)) {
+    return f;
+  } else {
+    throw error(`float argument to main must not be 'NaN'; got ${s}`);
+  }
+}
+
 function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
   let newEnv: Env = [new Map()];
 
@@ -812,13 +821,13 @@ function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
         let n: bigint = BigInt(parseInt(args[i]));
         newEnv[0].set(expected[i].name, n as Value);
         break;
+      case "float":
+        let f: number = parseNumber(args[i]);
+        newEnv[0].set(expected[i].name, f as Value);
+        break;
       case "bool":
         let b: boolean = parseBool(args[i]);
         newEnv[0].set(expected[i].name, b as Value);
-        break;
-      case "float":
-        let f: number = parseFloat(args[i]);
-        newEnv[0].set(expected[i].name, f as Value);
         break;
     }
   }
