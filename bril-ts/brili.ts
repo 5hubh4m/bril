@@ -147,7 +147,7 @@ type Pointer = {
 }
 
 type Value = boolean | BigInt | Pointer | number;
-type Env = Map<bril.Ident, Value>;
+type Env = Map<bril.Ident, Value>[];
 
 /**
  * Check whether a run-time value matches the given static type.
@@ -181,7 +181,7 @@ function typeCmp(lhs: bril.Type, rhs: bril.Type): boolean {
 }
 
 function get(env: Env, ident: bril.Ident) {
-  let val = env.get(ident);
+  let val = env[0].get(ident);
   if (typeof val === 'undefined') {
     throw error(`undefined variable ${ident}`);
   }
@@ -323,7 +323,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     throw error(`undefined function ${funcName}`);
   }
 
-  let newEnv: Env = new Map();
+  let newEnv: Env = [new Map()].concat(state.env);
 
   // Check arity of arguments and definition.
   let params = func.args || [];
@@ -342,7 +342,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     }
 
     // Set the value of the arg in the new (function) environment.
-    newEnv.set(params[i].name, value);
+    newEnv[0].set(params[i].name, value);
   }
 
   // Invoke the interpreter on the function.
@@ -387,7 +387,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     if (!typeCmp(instr.type, func.type)) {
       throw error(`type of value returned by function does not match declaration`);
     }
-    state.env.set(instr.dest, retVal);
+    state.env[0].set(instr.dest, retVal);
   }
   return NEXT;
 }
@@ -431,142 +431,142 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
       value = instr.value;
     }
 
-    state.env.set(instr.dest, value);
+    state.env[0].set(instr.dest, value);
     return NEXT;
 
   case "id": {
     let val = getArgument(instr, state.env, 0);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "add": {
     let val = getInt(instr, state.env, 0) + getInt(instr, state.env, 1);
     val = BigInt.asIntN(64, val);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "mul": {
     let val = getInt(instr, state.env, 0) * getInt(instr, state.env, 1);
     val = BigInt.asIntN(64, val);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "sub": {
     let val = getInt(instr, state.env, 0) - getInt(instr, state.env, 1);
     val = BigInt.asIntN(64, val);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "div": {
     let val = getInt(instr, state.env, 0) / getInt(instr, state.env, 1);
     val = BigInt.asIntN(64, val);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "le": {
     let val = getInt(instr, state.env, 0) <= getInt(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "lt": {
     let val = getInt(instr, state.env, 0) < getInt(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "gt": {
     let val = getInt(instr, state.env, 0) > getInt(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "ge": {
     let val = getInt(instr, state.env, 0) >= getInt(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "eq": {
     let val = getInt(instr, state.env, 0) === getInt(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "not": {
     let val = !getBool(instr, state.env, 0);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "and": {
     let val = getBool(instr, state.env, 0) && getBool(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "or": {
     let val = getBool(instr, state.env, 0) || getBool(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fadd": {
     let val = getFloat(instr, state.env, 0) + getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fsub": {
     let val = getFloat(instr, state.env, 0) - getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fmul": {
     let val = getFloat(instr, state.env, 0) * getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fdiv": {
     let val = getFloat(instr, state.env, 0) / getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fle": {
     let val = getFloat(instr, state.env, 0) <= getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "flt": {
     let val = getFloat(instr, state.env, 0) < getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fgt": {
     let val = getFloat(instr, state.env, 0) > getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "fge": {
     let val = getFloat(instr, state.env, 0) >= getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
   case "feq": {
     let val = getFloat(instr, state.env, 0) === getFloat(instr, state.env, 1);
-    state.env.set(instr.dest, val);
+    state.env[0].set(instr.dest, val);
     return NEXT;
   }
 
@@ -617,7 +617,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
       throw error(`cannot allocate non-pointer type ${instr.type}`);
     }
     let ptr = alloc(typ, Number(amt), state.heap);
-    state.env.set(instr.dest, ptr);
+    state.env[0].set(instr.dest, ptr);
     return NEXT;
   }
 
@@ -639,7 +639,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
     if (val === undefined || val === null) {
       throw error(`Pointer ${instr.args![0]} points to uninitialized data`);
     } else {
-      state.env.set(instr.dest, val);
+      state.env[0].set(instr.dest, val);
     }
     return NEXT;
   }
@@ -647,7 +647,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
   case "ptradd": {
     let ptr = getPtr(instr, state.env, 0)
     let val = getInt(instr, state.env, 1)
-    state.env.set(instr.dest, { loc: ptr.loc.add(Number(val)), type: ptr.type })
+    state.env[0].set(instr.dest, { loc: ptr.loc.add(Number(val)), type: ptr.type })
     return NEXT;
   }
 
@@ -663,18 +663,18 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
     let idx = labels.indexOf(state.lastlabel);
     if (idx === -1) {
       // Last label not handled. Leave uninitialized.
-      state.env.delete(instr.dest);
+      state.env[0].delete(instr.dest);
     } else {
       // Copy the right argument (including an undefined one).
       if (!instr.args || idx >= instr.args.length) {
         throw error(`phi node needed at least ${idx+1} arguments`);
       }
       let src = instr.args[idx];
-      let val = state.env.get(src);
+      let val = state.env[0].get(src);
       if (val === undefined) {
-        state.env.delete(instr.dest);
+        state.env[0].delete(instr.dest);
       } else {
-        state.env.set(instr.dest, val);
+        state.env[0].set(instr.dest, val);
       }
     }
     return NEXT;
@@ -720,7 +720,14 @@ function evalFunc(func: bril.Function, state: State): Value | null {
       case 'speculate': {
         // Begin speculation.
         state.specparent = {...state};
-        state.env = new Map(state.env);
+
+        // deep copy the environment
+        let copyEnv = [];
+        for (let map of state.env) {
+            copyEnv.push(new Map(map));
+        }
+        state.env = copyEnv;
+
         break;
       }
       case 'commit': {
@@ -792,7 +799,7 @@ function parseBool(s: string): boolean {
 }
 
 function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
-  let newEnv: Env = new Map();
+  let newEnv: Env = [new Map()];
 
   if (args.length !== expected.length) {
     throw error(`mismatched main argument arity: expected ${expected.length}; got ${args.length}`);
@@ -803,11 +810,15 @@ function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
     switch (type) {
       case "int":
         let n: bigint = BigInt(parseInt(args[i]));
-        newEnv.set(expected[i].name, n as Value);
+        newEnv[0].set(expected[i].name, n as Value);
         break;
       case "bool":
         let b: boolean = parseBool(args[i]);
-        newEnv.set(expected[i].name, b as Value);
+        newEnv[0].set(expected[i].name, b as Value);
+        break;
+      case "float":
+        let f: number = parseFloat(args[i]);
+        newEnv[0].set(expected[i].name, f as Value);
         break;
     }
   }
