@@ -77,6 +77,7 @@ export class Heap {
         }
         let base = this.getNewBase();
         this.storage.set(base, new Array(amt))
+        console.log("alloc! base is: " + base)
         return new Key(base, 0);
     }
 
@@ -284,6 +285,41 @@ function checkArgs(instr: bril.Operation, count: number) {
   }
 }
 
+/**
+ * TODO: Is there a better way to check for whether the value is a pointer?
+ */
+function isPointer(o : any) : boolean {
+  return o.loc !== undefined
+}
+
+/**
+ * TODO: feel free to move this; I just wasn't sure where to put it
+ */
+function traceRefs(env : Env) {
+  let blacks = [] // new Set<Value>();
+  let grays = [] //new Set<Value>();
+  // collecting all of the values stored in the roots and putting them in gray
+  for (let [key, value] of env[0]) {
+    if (isPointer(value)) {
+      // console.log("adding pointer " + key + " to gray nodes");
+      grays.push(value)
+      // grays.add(value)
+    }
+  }
+  // traversing
+  while (grays.size() > 0) {
+    let currGray = grays.pop()
+    if ( blacks.indexOf(currGray) == -1 ) {
+      blacks.add(currGray) // add to the list
+    }
+    // check whether the values within the pointer are pointers as well
+    // if so, add the inside pointers to the gray set (essentially a worklist)
+    // FIXME: this may be imprecise bc this sounds more simple than BFS/DFS?
+  }
+  // check for whether there are locations within the heap that are not
+  // in the black set
+}
+
 function getPtr(instr: bril.Operation, env: Env, index: number): Pointer {
   let val = getArgument(instr, env, index);
   if (typeof val !== 'object' || val instanceof BigInt) {
@@ -297,6 +333,9 @@ function getArgument(instr: bril.Operation, env: Env, index: number, typ?: bril.
   if (args.length <= index) {
     throw error(`${instr.op} expected at least ${index+1} arguments; got ${args.length}`);
   }
+  // TODO: delete below. just some debugging/understanding stuff
+  // console.log("getArgument env size: " + env.size)
+
   let val = get(env, args[index]);
   if (typ && !typeCheck(val, typ)) {
     throw error(`${instr.op} argument ${index} must be a ${typ}`);
@@ -766,6 +805,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
 
 function evalFunc(func: bril.Function, state: State): Value | null {
   for (let i = 0; i < func.instrs.length; ++i) {
+    // traceRefs(state.env) // uncomment to trigger tracing
     let line = func.instrs[i];
     if ('op' in line) {
       // Run an instruction.
