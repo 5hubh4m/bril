@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as bril from './bril';
+import * as util from 'util';
 import {cloneDeep} from 'lodash';
 import {readStdin, unreachable} from './util';
 
@@ -43,6 +44,10 @@ export class Key {
     add(offset: number) {
         return new Key(this.base, this.offset + offset);
     }
+
+    [util.inspect.custom](depth: any, opts: any) {
+        return `{'base': ${this.base}, 'offset': ${this.offset}}`
+    }
 }
 
 /**
@@ -77,7 +82,6 @@ export class Heap {
         }
         let base = this.getNewBase();
         this.storage.set(base, new Array(amt))
-        console.log("alloc! base is: " + base)
         return new Key(base, 0);
     }
 
@@ -112,37 +116,66 @@ export class Heap {
      * Trace the roots and determine the set
      * of live and dead objects to be freed.
      */
-    trace(stack: Env): number[] {
+    trace(stack: Env): Set<number> {
         // enumerate all the roots
-        let roots: Pointer[] = [];
+        let roots: number[] = [];
 
         // iterate over al values in the stack
         for (let vars of stack) {
             for (let [_, value] of vars) {
-                if (value.hasOwnProperty("loc")) {
-                    roots.push(value as Pointer);
+                if (isPointer(value)) {
+                    roots.push(value.loc.base);
                 }
             }
         }
 
-        // color of each node
-        let color: Map<number, Color> = new Map()
+        // sets of each color
+        let whites: Set<number> = new Set()
+        let greys: Set<number> = new Set()
+        let blacks: Set<number> = new Set()
 
         // initialise the color of each location to white
         for (let [ptr, _] of this.storage) {
-            color.set(ptr, 'white')
+            whites.add(ptr)
         }
 
         // initialise the color of roots to grey
         for (let root of roots) {
-            color.set(root.loc.base, 'grey')
+            greys.add(root)
+            whites.delete(root)
         }
+
+        // iterate while we still have grey nodes
+        while (greys.size > 0) {
+            // get the first grey node
+            let node = greys.values().next().value;
+
+            // move it to black nodes
+            greys.delete(node)
+            blacks.add(node)
+
+            // if the node is pointing to a pointer
+            // then recursively add it to the set
+            // of grey nodes
+            for (let value of this.storage.get(node) || []) {
+                // if the value in this array is not in black
+                // and is in white then we remove it from whites
+                // and add it to grey
+                if (isPointer(value) && !blacks.has(value.loc.base)) {
+                    whites.delete(value.loc.base)
+                    greys.add(value.loc.base)
+                }
+            }
+        }
+
+        // return all the white nodes
+        return whites
     }
 
     /**
      * Free the given heap locations.
      */
-    collect(keys: number[]) {
+    collect(keys: Set<number>) {
         keys.forEach(k => this.storage.delete(k))
     }
 
@@ -201,6 +234,10 @@ const argCounts: {[key in bril.OpCode]: number | null} = {
 type Pointer = {
   loc: Key;
   type: bril.Type;
+}
+
+function isPointer(object: any): object is Pointer {
+    return typeof object === 'object' && 'loc' in object && 'type' in object;
 }
 
 type Value = boolean | BigInt | Pointer | number;
@@ -285,41 +322,6 @@ function checkArgs(instr: bril.Operation, count: number) {
   }
 }
 
-/**
- * TODO: Is there a better way to check for whether the value is a pointer?
- */
-function isPointer(o : any) : boolean {
-  return o.loc !== undefined
-}
-
-/**
- * TODO: feel free to move this; I just wasn't sure where to put it
- */
-function traceRefs(env : Env) {
-  let blacks = [] // new Set<Value>();
-  let grays = [] //new Set<Value>();
-  // collecting all of the values stored in the roots and putting them in gray
-  for (let [key, value] of env[0]) {
-    if (isPointer(value)) {
-      // console.log("adding pointer " + key + " to gray nodes");
-      grays.push(value)
-      // grays.add(value)
-    }
-  }
-  // traversing
-  while (grays.size() > 0) {
-    let currGray = grays.pop()
-    if ( blacks.indexOf(currGray) == -1 ) {
-      blacks.add(currGray) // add to the list
-    }
-    // check whether the values within the pointer are pointers as well
-    // if so, add the inside pointers to the gray set (essentially a worklist)
-    // FIXME: this may be imprecise bc this sounds more simple than BFS/DFS?
-  }
-  // check for whether there are locations within the heap that are not
-  // in the black set
-}
-
 function getPtr(instr: bril.Operation, env: Env, index: number): Pointer {
   let val = getArgument(instr, env, index);
   if (typeof val !== 'object' || val instanceof BigInt) {
@@ -333,8 +335,6 @@ function getArgument(instr: bril.Operation, env: Env, index: number, typ?: bril.
   if (args.length <= index) {
     throw error(`${instr.op} expected at least ${index+1} arguments; got ${args.length}`);
   }
-  // TODO: delete below. just some debugging/understanding stuff
-  // console.log("getArgument env size: " + env.size)
 
   let val = get(env, args[index]);
   if (typ && !typeCheck(val, typ)) {
