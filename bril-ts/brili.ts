@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import * as bril from './bril';
+import {cloneDeep} from 'lodash';
 import {readStdin, unreachable} from './util';
+
+/**
+ * Interval after which garbage collection will be performed.
+ */
+const kGarbageCollectInterval = BigInt(10000);
 
 /**
  * An interpreter error to print to the console.
@@ -42,9 +48,11 @@ export class Key {
 /**
  * A Heap maps Keys to arrays of a given type.
  */
-export class Heap<X> {
+export class Heap {
 
-    private readonly storage: Map<number, X[]>
+    private readonly storage: Map<number, Value[]>
+    private count = 0;
+
     constructor() {
         this.storage = new Map()
     }
@@ -53,18 +61,17 @@ export class Heap<X> {
         return this.storage.size == 0;
     }
 
-    private count = 0;
-    private getNewBase():number {
+    private getNewBase(): number {
         let val = this.count;
         this.count++;
         return val;
     }
 
-    private freeKey(key:Key) {
+    private freeKey(key: Key) {
         return;
     }
 
-    alloc(amt:number): Key {
+    alloc(amt: number): Key {
         if (amt <= 0) {
             throw error(`cannot allocate ${amt} entries`);
         }
@@ -82,7 +89,7 @@ export class Heap<X> {
         }
     }
 
-    write(key: Key, val: X) {
+    write(key: Key, val: Value) {
         let data = this.storage.get(key.base);
         if (data && data.length > key.offset && key.offset >= 0) {
             data[key.offset] = val;
@@ -91,7 +98,7 @@ export class Heap<X> {
         }
     }
 
-    read(key: Key): X {
+    read(key: Key): Value {
         let data = this.storage.get(key.base);
         if (data && data.length > key.offset && key.offset >= 0) {
             return data[key.offset];
@@ -99,7 +106,56 @@ export class Heap<X> {
             throw error(`Uninitialized heap location ${key.base} and/or illegal offset ${key.offset}`);
         }
     }
+
+    /**
+     * Trace the roots and determine the set
+     * of live and dead objects to be freed.
+     */
+    trace(stack: Env): number[] {
+        // enumerate all the roots
+        let roots: Pointer[] = [];
+
+        // iterate over al values in the stack
+        for (let vars of stack) {
+            for (let [_, value] of vars) {
+                if (value.hasOwnProperty("loc")) {
+                    roots.push(value as Pointer);
+                }
+            }
+        }
+
+        // color of each node
+        let color: Map<number, Color> = new Map()
+
+        // initialise the color of each location to white
+        for (let [ptr, _] of this.storage) {
+            color.set(ptr, 'white')
+        }
+
+        // initialise the color of roots to grey
+        for (let root of roots) {
+            color.set(root.loc.base, 'grey')
+        }
+    }
+
+    /**
+     * Free the given heap locations.
+     */
+    collect(keys: number[]) {
+        keys.forEach(k => this.storage.delete(k))
+    }
+
+    /**
+     * Perform one round of garbage collection.
+     */
+    garbageCollect(roots: Env) {
+        let dead = this.trace(roots)
+        this.collect(dead)
+    }
+
 }
+
+type Color = 'black' | 'grey' | 'white'
 
 const argCounts: {[key in bril.OpCode]: number | null} = {
   add: 2,
@@ -202,7 +258,7 @@ function findFunc(func: bril.Ident, funcs: readonly bril.Function[]) {
   return matches[0];
 }
 
-function alloc(ptrType: bril.ParamType, amt:number, heap:Heap<Value>): Pointer {
+function alloc(ptrType: bril.ParamType, amt:number, heap:Heap): Pointer {
   if (typeof ptrType != 'object') {
     throw error(`unspecified pointer type ${ptrType}`);
   } else if (amt <= 0) {
@@ -298,7 +354,7 @@ let NEXT: Action = {"action": "next"};
  */
 type State = {
   env: Env,
-  readonly heap: Heap<Value>,
+  heap: Heap,
   readonly funcs: readonly bril.Function[],
 
   // For profiling: a total count of the number of instructions executed.
@@ -400,6 +456,11 @@ function evalCall(instr: bril.Operation, state: State): Action {
  */
 function evalInstr(instr: bril.Instruction, state: State): Action {
   state.icount += BigInt(1);
+
+  // collect garbage after evaluating some instructions
+  if (state.icount % kGarbageCollectInterval === BigInt(0)) {
+    state.heap.garbageCollect(state.env);
+  }
 
   // Check that we have the right number of arguments.
   if (instr.op !== "const") {
@@ -622,8 +683,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
   }
 
   case "free": {
-    let val = getPtr(instr, state.env, 0);
-    state.heap.free(val.loc);
+    /* In the GC world, free is a no-op. */
     return NEXT;
   }
 
@@ -719,15 +779,7 @@ function evalFunc(func: bril.Function, state: State): Value | null {
       }
       case 'speculate': {
         // Begin speculation.
-        state.specparent = {...state};
-
-        // deep copy the environment
-        let copyEnv = [];
-        for (let map of state.env) {
-            copyEnv.push(new Map(map));
-        }
-        state.env = copyEnv;
-
+        state.specparent = cloneDeep(state)
         break;
       }
       case 'commit': {
@@ -835,7 +887,7 @@ function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
 }
 
 function evalProg(prog: bril.Program) {
-  let heap = new Heap<Value>()
+  let heap = new Heap()
   let main = findFunc("main", prog.functions);
   if (main === null) {
     console.warn(`no main function defined, doing nothing`);
@@ -866,8 +918,11 @@ function evalProg(prog: bril.Program) {
   }
   evalFunc(main, state);
 
+  // final garbage collection
+  heap.garbageCollect([]);
+
   if (!heap.isEmpty()) {
-    throw error(`Some memory locations have not been freed by end of execution.`);
+    console.warn(`Some memory locations have not been freed by end of execution.`);
   }
 
   if (profiling) {

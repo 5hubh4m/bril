@@ -12,6 +12,7 @@
     "build": "tsc && chmod a+x build/ts2bril.js build/brili.js build/brilck.js"
   },
   "dependencies": {
+    "@types/lodash": "^4.14.181",
     "@types/node": "^11.13.5",
     "typescript": "^3.4.3"
   }
