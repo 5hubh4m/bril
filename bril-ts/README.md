@@ -21,7 +21,7 @@ This creates some straightforward cleanup downstream.
 A `Heap` contains  
 `private readonly storage: Map<number, Value[]>`  
 and a `Value` is an ADT:  
-`Value = boolean | BigInt | Pointer | number;`  
+`Value = boolean | BigInt | Pointer | number;`.  
 This means that we need not be conservative; we can precisely follow `Pointer`s to check for reachability. 
 
 We change the existing `free` operation into a no-op. Every 10,000 instructions trigger a collection, and the end of the main function also triggers a collection. A collection is a `trace`, which lists everything that is to be freed, followed by `collect`, which essentially calls the dearly departed `free` operation on each of these. The meat of the matter is clearly `trace`, so we discuss it a little further.
