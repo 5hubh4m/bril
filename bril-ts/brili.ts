@@ -3,6 +3,11 @@ import * as bril from './bril';
 import {readStdin, unreachable} from './util';
 
 /**
+ * Minimum invocations for us to strt tracing a function.
+ */
+const kMinTracingRunCount: number = 10;
+
+/**
  * An interpreter error to print to the console.
  */
 class BriliError extends Error {
@@ -313,6 +318,17 @@ type State = {
 }
 
 /**
+ * A global map for counting how many times a function triggered.
+ */
+const runCount: Map<bril.Ident, number> = new Map();
+const traced: Set<bril.Ident> = new Set();
+
+/**
+ * A global counter for whether we are tracing.
+ */
+let tracingEnabled: boolean = false;
+
+/**
  * Interpet a call instruction.
  */
 function evalCall(instr: bril.Operation, state: State): Action {
@@ -321,6 +337,19 @@ function evalCall(instr: bril.Operation, state: State): Action {
   let func = findFunc(funcName, state.funcs);
   if (func === null) {
     throw error(`undefined function ${funcName}`);
+  }
+
+  // Whether to trace this function
+  let tracing: boolean = false;
+
+  // Increment the run count and start tracing
+  if (tracingEnabled) {
+    runCount.set(funcName, (runCount.get(funcName) || 0) + 1);
+    if ((runCount.get(funcName) || 0) >= kMinTracingRunCount && !traced.has(funcName) && !tracing) {
+      traced.add(funcName);
+      tracing = true;
+      console.error(`[trace] started tracing function: ${funcName}`);
+    }
   }
 
   let newEnv: Env = new Map();
@@ -355,7 +384,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     curlabel: null,
     specparent: null,  // Speculation not allowed.
   }
-  let retVal = evalFunc(func, newState);
+  let retVal = evalFunc(func, newState, tracing);
   state.icount = newState.icount;
 
   // Dynamically check the function's return value and type.
@@ -389,6 +418,13 @@ function evalCall(instr: bril.Operation, state: State): Action {
     }
     state.env.set(instr.dest, retVal);
   }
+
+  // Finish tracing this function
+  if (tracing) {
+    tracing = false;
+    console.error(`[trace] finished tracing function: ${funcName}`);
+  }
+
   return NEXT;
 }
 
@@ -398,7 +434,12 @@ function evalCall(instr: bril.Operation, state: State): Action {
  * otherwise, return "next" to indicate that we should proceed to the next
  * instruction or "end" to terminate the function.
  */
-function evalInstr(instr: bril.Instruction, state: State): Action {
+function evalInstr(instr: bril.Instruction, state: State, tracing: boolean): Action {
+  // Trace the instruction if enabled
+  if (tracing && instr.op != "br") {
+    console.error(JSON.stringify(instr));
+  }
+
   state.icount += BigInt(1);
 
   // Check that we have the right number of arguments.
@@ -583,6 +624,11 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
 
   case "br": {
     let cond = getBool(instr, state.env, 0);
+    if (tracing) {
+        let obj: any = { ...instr };
+        obj["result"] = cond;
+        console.error(JSON.stringify(obj));
+    }
     if (cond) {
       return {"action": "jump", "label": getLabel(instr, 0)};
     } else {
@@ -704,12 +750,12 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
   throw error(`unhandled opcode ${(instr as any).op}`);
 }
 
-function evalFunc(func: bril.Function, state: State): Value | null {
+function evalFunc(func: bril.Function, state: State, tracing: boolean): Value | null {
   for (let i = 0; i < func.instrs.length; ++i) {
     let line = func.instrs[i];
     if ('op' in line) {
       // Run an instruction.
-      let action = evalInstr(line, state);
+      let action = evalInstr(line, state, tracing);
 
       // Take the prescribed action.
       switch (action.action) {
@@ -835,13 +881,18 @@ function evalProg(prog: bril.Program) {
     return;
   }
 
-  // Silly argument parsing to find the `-p` flag.
+  // Silly argument parsing to find the `-p`, and `-t` flag.
   let args: string[] = process.argv.slice(2, process.argv.length);
   let profiling = false;
   let pidx = args.indexOf('-p');
   if (pidx > -1) {
     profiling = true;
     args.splice(pidx, 1);
+  }
+  let tidx = args.indexOf('-t');
+  if (tidx > -1) {
+    tracingEnabled = true;
+    args.splice(tidx, 1);
   }
 
   // Remaining arguments are for the main function.k
@@ -857,7 +908,7 @@ function evalProg(prog: bril.Program) {
     curlabel: null,
     specparent: null,
   }
-  evalFunc(main, state);
+  evalFunc(main, state, false);
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
