@@ -326,6 +326,7 @@ const traced: Set<bril.Ident> = new Set();
 /**
  * A global counter for whether we are tracing.
  */
+let tracing: boolean = false;
 let tracingEnabled: boolean = false;
 
 /**
@@ -339,15 +340,14 @@ function evalCall(instr: bril.Operation, state: State): Action {
     throw error(`undefined function ${funcName}`);
   }
 
-  // Whether to trace this function
-  let tracing: boolean = false;
-
   // Increment the run count and start tracing
+  let didWeStartTracing: boolean = false;
   if (tracingEnabled) {
     runCount.set(funcName, (runCount.get(funcName) || 0) + 1);
     if ((runCount.get(funcName) || 0) >= kMinTracingRunCount && !traced.has(funcName) && !tracing) {
       traced.add(funcName);
       tracing = true;
+      didWeStartTracing = true;
       console.error(`[trace] started tracing function: ${funcName}`);
     }
   }
@@ -384,7 +384,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     curlabel: null,
     specparent: null,  // Speculation not allowed.
   }
-  let retVal = evalFunc(func, newState, tracing);
+  let retVal = evalFunc(func, newState);
   state.icount = newState.icount;
 
   // Dynamically check the function's return value and type.
@@ -420,7 +420,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
   }
 
   // Finish tracing this function
-  if (tracing) {
+  if (tracing && didWeStartTracing) {
     tracing = false;
     console.error(`[trace] finished tracing function: ${funcName}`);
   }
@@ -434,7 +434,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
  * otherwise, return "next" to indicate that we should proceed to the next
  * instruction or "end" to terminate the function.
  */
-function evalInstr(instr: bril.Instruction, state: State, tracing: boolean): Action {
+function evalInstr(instr: bril.Instruction, state: State): Action {
   // Trace the instruction if enabled
   if (tracing && instr.op != "br") {
     console.error(JSON.stringify(instr));
@@ -750,12 +750,12 @@ function evalInstr(instr: bril.Instruction, state: State, tracing: boolean): Act
   throw error(`unhandled opcode ${(instr as any).op}`);
 }
 
-function evalFunc(func: bril.Function, state: State, tracing: boolean): Value | null {
+function evalFunc(func: bril.Function, state: State): Value | null {
   for (let i = 0; i < func.instrs.length; ++i) {
     let line = func.instrs[i];
     if ('op' in line) {
       // Run an instruction.
-      let action = evalInstr(line, state, tracing);
+      let action = evalInstr(line, state);
 
       // Take the prescribed action.
       switch (action.action) {
@@ -908,7 +908,7 @@ function evalProg(prog: bril.Program) {
     curlabel: null,
     specparent: null,
   }
-  evalFunc(main, state, false);
+  evalFunc(main, state);
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
